@@ -1,8 +1,5 @@
 //Example of a metadata driven datafactory pipeline bicep deployment.
-//  Creates a fore each loop to iteratively copy the objects.
-//
-//  Warning: Dataset references expect a parameter 'objectName'. Modify
-//    in code below to match your needs.
+//  Creates a foreach loop to iteratively copy the objects.
 
 @description('Name of the pipeline when deployed to data factory.')
 param pipelineName string
@@ -17,19 +14,37 @@ param source object
 param sink object
 
 @description('Source dataset reference name.')
-param sourceDatasetReferenceName string
+param sourceDatasetReference string
 
 @description('Sink dataset reference name.')
-param sinkDatasetReferenceName string
+param sinkDatasetReference string
 
 @description('Number of copy activities to run simultaneously')
 param batchCount int = 10
 
 @description('List of objects from the source to copy to the destination.')
-param objects array = [
+param copyMappings array = [
   {
-    sourceName: 'table1'
-    sinkName: 'file1'
+    source: {
+      schema: 'dbo'
+      table: 'table1'
+    }
+    sink: {
+      container: 'examples'
+      folder: '/raw/metadataExample/'
+      file: 'file1.parquet'
+    }
+  }
+  {
+    name: 'Copy table2 to file2'
+    source: {
+      schema: 'dbo'
+      table: 'table2'
+    }
+    sink: {
+      folder: '/raw/metadataExample/'
+      file: 'file2.parquet'
+    }
   }
 ]
 
@@ -39,7 +54,7 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
     activities: [
       {        
         type: 'ForEach'
-        name: 'Iterate Objects'
+        name: 'Iterate Copy Mappings'
         typeProperties: {
           activities: [
             {              
@@ -51,16 +66,16 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
               }
               inputs: [{
                   type: 'DatasetReference'
-                  referenceName: sourceDatasetReferenceName
+                  referenceName: sourceDatasetReference
                   parameters: {
-                    objectName: '@item().sourceName'
+                    datasetParams: '@item().sink'
                   }
                 }]
               outputs: [{
                 type: 'DatasetReference'
-                referenceName: sinkDatasetReferenceName
+                referenceName: sinkDatasetReference
                 parameters: {
-                  objectName: '@item().sinkName'
+                  datasetParams: '@item().source'
                 }
               }]
             }
@@ -81,7 +96,7 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
     variables: {
       objectsArray: {
         type: 'Array'
-        defaultValue: objects
+        defaultValue: copyMappings
       }
     }
   }

@@ -4,9 +4,6 @@
 //  Warning: If the maximum number of activities (40) is exceeded, the process
 //    is split into worker pipelines and a single control pipeline is
 //    created. This allows for a maximum of 160 objects before breakage.
-//
-//  Warning: Dataset references expect a parameter 'objectName'. Modify
-//    in code below to match your needs.
 
 @description('Name of the pipeline when deployed to data factory.')
 param pipelineName string
@@ -21,20 +18,39 @@ param source object
 param sink object
 
 @description('Source dataset reference name.')
-param sourceDatasetReferenceName string
+param sourceDatasetReference string
 
 @description('Sink dataset reference name.')
-param sinkDatasetReferenceName string
+param sinkDatasetReference string
 
 @description('List of objects from the source to copy to the destination.')
-param objects array = [
+param copyMappings array = [
   {
-    sourceName: 'table1'
-    sinkName: 'file1'
+    name: 'Copy table1 to file1'
+    source: {
+      schema: 'dbo'
+      table: 'table1'
+    }
+    sink: {
+      container: 'examples'
+      folder: '/raw/metadataExample/'
+      file: 'file1.parquet'
+    }
+  }
+  {
+    name: 'Copy table2 to file2'
+    source: {
+      schema: 'dbo'
+      table: 'table2'
+    }
+    sink: {
+      folder: '/raw/metadataExample/'
+      file: 'file2.parquet'
+    }
   }
 ]
 
-var objectCount = length(objects)
+var objectCount = length(copyMappings)
 var maxActivities = 40
 
 // Basic formula for Ceiling function
@@ -49,26 +65,22 @@ var workerPipelines = [for i in range(1, requiredPipelines): {
 resource workerPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' = [for workerPipeline in workerPipelines: {
   name: workerPipeline.name
   properties: {
-    activities: [for object in objects: {
+    activities: [for copyMapping in copyMappings: {
       type: 'Copy'
-      name: '${object.sourceName}'
+      name: copyMapping.name
       typeProperties: {
         source: source
         sink: sink
       }
       inputs: [{
           type: 'DatasetReference'
-          referenceName: sourceDatasetReferenceName
-          parameters: {
-            objectName: object.sourceName
-          }
+          referenceName: sourceDatasetReference
+          parameters: copyMapping.source
         }]
       outputs: [{
         type: 'DatasetReference'
-        referenceName: sinkDatasetReferenceName
-        parameters: {
-          objectName: object.sinkName
-        }
+        referenceName: sinkDatasetReference
+        parameters: copyMapping.sink
       }]
     }]
     concurrency: 1
