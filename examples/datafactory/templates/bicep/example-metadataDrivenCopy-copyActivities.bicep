@@ -5,23 +5,31 @@
 //    is split into worker pipelines and a single control pipeline is
 //    created. This allows for a maximum of 160 objects before breakage.
 
+@description('Name of the data factory to deploy the pipeline.')
+param dataFactoryName string
+
 @description('Name of the pipeline when deployed to data factory.')
-param pipelineName string
+param pipelineName string = 'activities-metadata-pipeline'
 
 @description('Folder location to deploy the pipeline.')
 param folderPath string = 'metadata-examples'
 
 @description('Source details, one of: https://docs.microsoft.com/en-us/azure/templates/microsoft.datafactory/factories/pipelines?tabs=bicep#copysource-objects')
-param source object
+param source object = {
+  type: 'AzureSqlSource'
+}
 
 @description('Sink details, one of: https://docs.microsoft.com/en-us/azure/templates/microsoft.datafactory/factories/pipelines?tabs=bicep#copysink-objects')
-param sink object
+param sink object = {
+  type: 'AzureBlobFSSink'
+}
 
 @description('Source dataset reference name.')
-param sourceDatasetReference string
+param sourceDatasetReference string = 'AzureSqlTable1'
 
 @description('Sink dataset reference name.')
-param sinkDatasetReference string
+param sinkDatasetReference string = 'Parquet1'
+
 
 @description('List of objects from the source to copy to the destination.')
 param copyMappings array = [
@@ -32,7 +40,7 @@ param copyMappings array = [
       table: 'table1'
     }
     sink: {
-      container: 'examples'
+      fileSystem: 'examples'
       folder: '/raw/metadataExample/'
       file: 'file1.parquet'
     }
@@ -44,6 +52,7 @@ param copyMappings array = [
       table: 'table2'
     }
     sink: {
+      fileSystem: 'examples'
       folder: '/raw/metadataExample/'
       file: 'file2.parquet'
     }
@@ -53,16 +62,21 @@ param copyMappings array = [
 var objectCount = length(copyMappings)
 var maxActivities = 40
 
-// Basic formula for Ceiling function
 // Maximum of 40 activities per pipeline, this will determine the total pipelines required to deploy.
 var requiredPipelines = objectCount / maxActivities + (1 - ((objectCount % maxActivities) / maxActivities))
 
 var workerPipelines = [for i in range(1, requiredPipelines): {
-  name: (requiredPipelines == 1) ? pipelineName : '${pipelineName}-${i}'
+  name: (requiredPipelines == 1) ? pipelineName : '${pipelineName}-worker-${i}'
 }]
 
+var controlPipelineName = (requiredPipelines == 1) ? 'not-used' : pipelineName
+
+resource deploymentFactory 'Microsoft.DataFactory/factories@2018-06-01' existing = {
+  name: dataFactoryName
+}
 
 resource workerPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' = [for workerPipeline in workerPipelines: {
+  parent: deploymentFactory
   name: workerPipeline.name
   properties: {
     activities: [for copyMapping in copyMappings: {
@@ -75,12 +89,16 @@ resource workerPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' =
       inputs: [{
           type: 'DatasetReference'
           referenceName: sourceDatasetReference
-          parameters: copyMapping.source
+          parameters: {
+            datasetParams: copyMapping.source
+          }
         }]
       outputs: [{
         type: 'DatasetReference'
         referenceName: sinkDatasetReference
-        parameters: copyMapping.sink
+        parameters: {
+          datasetParams: copyMapping.sink
+        }
       }]
     }]
     concurrency: 1
@@ -91,7 +109,8 @@ resource workerPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' =
 }]
 
 resource controlPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' = if(requiredPipelines > 1) {
-  name: pipelineName
+  parent: deploymentFactory
+  name: controlPipelineName
   dependsOn: workerPipeline
   properties: {
     activities: [for (workerPipeline, i) in workerPipelines: {
@@ -116,6 +135,7 @@ resource controlPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' 
 }
 
 output pipelineOutput object = {
-  name: pipelineName
+  dataFactoryName: dataFactoryName
+  pipelineName: pipelineName
   workerPipelines: (requiredPipelines > 1) ? workerPipelines : null
 }

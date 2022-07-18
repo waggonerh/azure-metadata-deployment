@@ -1,23 +1,30 @@
 //Example of a metadata driven datafactory pipeline bicep deployment.
 //  Creates a foreach loop to iteratively copy the objects.
 
+@description('Name of the data factory to deploy the pipeline.')
+param dataFactoryName string
+
 @description('Name of the pipeline when deployed to data factory.')
-param pipelineName string
+param pipelineName string = 'forEach-metadata-pipeline'
 
 @description('Folder location to deploy the pipeline.')
 param folderPath string = 'metadata-examples'
 
 @description('Source details, one of: https://docs.microsoft.com/en-us/azure/templates/microsoft.datafactory/factories/pipelines?tabs=bicep#copysource-objects')
-param source object
+param source object = {
+  type: 'AzureSqlSource'
+}
 
 @description('Sink details, one of: https://docs.microsoft.com/en-us/azure/templates/microsoft.datafactory/factories/pipelines?tabs=bicep#copysink-objects')
-param sink object
+param sink object = {
+  type: 'AzureBlobFSSink'
+}
 
 @description('Source dataset reference name.')
-param sourceDatasetReference string
+param sourceDatasetReference string = 'AzureSqlTable1'
 
 @description('Sink dataset reference name.')
-param sinkDatasetReference string
+param sinkDatasetReference string = 'Parquet1'
 
 @description('Number of copy activities to run simultaneously')
 param batchCount int = 10
@@ -30,25 +37,30 @@ param copyMappings array = [
       table: 'table1'
     }
     sink: {
-      container: 'examples'
+      fileSystem: 'examples'
       folder: '/raw/metadataExample/'
       file: 'file1.parquet'
     }
   }
   {
-    name: 'Copy table2 to file2'
     source: {
       schema: 'dbo'
       table: 'table2'
     }
     sink: {
+      fileSystem: 'examples'
       folder: '/raw/metadataExample/'
       file: 'file2.parquet'
     }
   }
 ]
 
+resource deploymentFactory 'Microsoft.DataFactory/factories@2018-06-01' existing = {
+  name: dataFactoryName
+}
+
 resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01' = {
+  parent: deploymentFactory
   name: pipelineName
   properties: {
     activities: [
@@ -68,14 +80,14 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
                   type: 'DatasetReference'
                   referenceName: sourceDatasetReference
                   parameters: {
-                    datasetParams: '@item().sink'
+                    datasetParams: '@item().source'
                   }
                 }]
               outputs: [{
                 type: 'DatasetReference'
                 referenceName: sinkDatasetReference
                 parameters: {
-                  datasetParams: '@item().source'
+                  datasetParams: '@item().sink'
                 }
               }]
             }
@@ -84,7 +96,7 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
           isSequential: false
           items: {
             type: 'Expression'
-            value: '@variables(\'objectsArray\')'
+            value: '@variables(\'copyArray\')'
           }
         }
       }
@@ -94,7 +106,7 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
       name: folderPath
     }
     variables: {
-      objectsArray: {
+      copyArray: {
         type: 'Array'
         defaultValue: copyMappings
       }
@@ -103,5 +115,6 @@ resource metadataPipeline 'Microsoft.DataFactory/factories/pipelines@2018-06-01'
 }
 
 output pipelineOutput object = {
-  name: pipelineName
+  dataFactoryName: dataFactoryName
+  pipelineName: pipelineName
 }
